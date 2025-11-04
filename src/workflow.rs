@@ -32,6 +32,12 @@ pub struct CleanupResult {
     pub remote_delete_error: Option<String>,
 }
 
+/// Options for setting up a worktree environment
+struct SetupOptions {
+    run_hooks: bool,
+    force_files: bool,
+}
+
 /// Create a new worktree with tmux window and panes
 pub fn create(branch_name: &str, config: &config::Config) -> Result<CreateResult> {
     // Pre-flight checks
@@ -55,7 +61,8 @@ pub fn create(branch_name: &str, config: &config::Config) -> Result<CreateResult
 
     if git::worktree_exists(branch_name)? {
         return Err(anyhow!(
-            "A worktree for branch '{}' already exists",
+            "A worktree for branch '{}' already exists. Use 'workmux open {}' to open it.",
+            branch_name,
             branch_name
         ));
     }
@@ -92,27 +99,90 @@ pub fn create(branch_name: &str, config: &config::Config) -> Result<CreateResult
     git::create_worktree(&worktree_path, branch_name, create_new)
         .context("Failed to create git worktree")?;
 
+    // Setup the rest of the environment (tmux, files, hooks)
+    let options = SetupOptions {
+        run_hooks: true,
+        force_files: true,
+    };
+    setup_environment(branch_name, &worktree_path, config, &options)
+}
+
+/// Open a tmux window for an existing worktree
+pub fn open(
+    branch_name: &str,
+    run_hooks: bool,
+    force_files: bool,
+    config: &config::Config,
+) -> Result<CreateResult> {
+    // Pre-flight checks
+    if !git::is_git_repo()? {
+        return Err(anyhow!("Not in a git repository"));
+    }
+
+    if !tmux::is_running()? {
+        return Err(anyhow!(
+            "tmux is not running. Please start a tmux session first."
+        ));
+    }
+
+    let prefix = config.window_prefix();
+    if tmux::window_exists(prefix, branch_name)? {
+        return Err(anyhow!(
+            "A tmux window named '{}' already exists. To switch to it, run: tmux select-window -t '{}'",
+            branch_name, tmux::prefixed(prefix, branch_name)
+        ));
+    }
+
+    // This command requires the worktree to already exist
+    let worktree_path = git::get_worktree_path(branch_name).with_context(|| {
+        format!(
+            "No worktree found for branch '{}'. Use 'workmux add {}' to create it.",
+            branch_name, branch_name
+        )
+    })?;
+
+    // Setup the environment
+    let options = SetupOptions {
+        run_hooks,
+        force_files,
+    };
+    setup_environment(branch_name, &worktree_path, config, &options)
+}
+
+/// Sets up the tmux window, files, and hooks for a worktree.
+/// This is the shared logic between `create` and `open`.
+fn setup_environment(
+    branch_name: &str,
+    worktree_path: &Path,
+    config: &config::Config,
+    options: &SetupOptions,
+) -> Result<CreateResult> {
+    let prefix = config.window_prefix();
+
     // Create tmux window
-    tmux::create_window(prefix, branch_name, &worktree_path)
+    tmux::create_window(prefix, branch_name, worktree_path)
         .context("Failed to create tmux window")?;
 
-    // Perform file operations (copy and symlink)
-    handle_file_operations(&repo_root, &worktree_path, &config.files)
-        .context("Failed to perform file operations")?;
+    // Perform file operations (copy and symlink) if forced
+    if options.force_files {
+        let repo_root = git::get_repo_root()?;
+        handle_file_operations(&repo_root, worktree_path, &config.files)
+            .context("Failed to perform file operations")?;
+    }
 
-    // Run post-create hooks as regular processes in the worktree directory
-    // This happens BEFORE switching to tmux, so users see progress in their terminal
-    let hooks_run = config.post_create.len();
-    if !config.post_create.is_empty() {
+    // Run post-create hooks if enabled
+    let mut hooks_run = 0;
+    if options.run_hooks && !config.post_create.is_empty() {
+        hooks_run = config.post_create.len();
         for (idx, command) in config.post_create.iter().enumerate() {
             println!("  [{}/{}] Running: {}", idx + 1, hooks_run, command);
-            cmd::shell_command(command, &worktree_path)
+            cmd::shell_command(command, worktree_path)
                 .with_context(|| format!("Failed to run post-create command: '{}'", command))?;
         }
     }
 
     // Setup panes
-    let pane_setup_result = tmux::setup_panes(prefix, branch_name, &config.panes, &worktree_path)
+    let pane_setup_result = tmux::setup_panes(prefix, branch_name, &config.panes, worktree_path)
         .context("Failed to setup panes")?;
 
     // Focus the configured pane
@@ -122,7 +192,7 @@ pub fn create(branch_name: &str, config: &config::Config) -> Result<CreateResult
     tmux::select_window(prefix, branch_name)?;
 
     Ok(CreateResult {
-        worktree_path,
+        worktree_path: worktree_path.to_path_buf(),
         branch_name: branch_name.to_string(),
         post_create_hooks_run: hooks_run,
     })

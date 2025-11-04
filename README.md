@@ -145,6 +145,8 @@ to your project by default.
 - [`remove`](#workmux-remove-branch-name) - Remove a worktree without merging
 - [`list`](#workmux-list) - List all worktrees with status
 - [`init`](#workmux-init) - Generate configuration file
+- [`open`](#workmux-open-branch-name) - Open a tmux window for an existing
+  worktree
 - [`completions`](#workmux-completions-shell) - Generate shell completions
 
 ### `workmux add <branch-name>`
@@ -299,6 +301,44 @@ workmux init
 
 This creates a `.workmux.yaml` file that you can customize to define your tmux
 layout, post-creation hooks, and file operations.
+
+---
+
+### `workmux open <branch-name>`
+
+Opens a new tmux window for a pre-existing git worktree, setting up the
+configured pane layout and environment. This is useful if you accidentally
+closed the tmux window for a worktree you are still working on.
+
+- `<branch-name>`: Name of the branch that has an existing worktree.
+
+**Common options:**
+
+- `--run-hooks`: Re-runs the `post_create` commands (e.g., `pnpm install`).
+- `--force-files`: Re-applies file copy/symlink operations. Useful for restoring
+  a deleted `.env` file.
+
+**What happens:**
+
+1. Verifies that a worktree for `<branch-name>` exists and a tmux window does
+   not.
+2. Creates a new tmux window named after the branch.
+3. (If specified) Runs file operations and `post_create` hooks.
+4. Sets up your configured tmux pane layout.
+5. Automatically switches your tmux client to the new window.
+
+**Examples:**
+
+```bash
+# Open a window for an existing worktree
+workmux open user-auth
+
+# Open and re-run dependency installation
+workmux open user-auth --run-hooks
+
+# Open and restore configuration files
+workmux open user-auth --force-files
+```
 
 ---
 

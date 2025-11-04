@@ -105,6 +105,21 @@ enum Commands {
         branch_name: String,
     },
 
+    /// Open a tmux window for an existing worktree
+    Open {
+        /// Name of the branch with an existing worktree
+        #[arg(value_parser = WorktreeBranchParser::new())]
+        branch_name: String,
+
+        /// Re-run post-create hooks (e.g., pnpm install)
+        #[arg(long)]
+        run_hooks: bool,
+
+        /// Re-apply file operations (copy/symlink)
+        #[arg(long)]
+        force_files: bool,
+    },
+
     /// Merge a branch, then clean up the worktree and tmux window
     Merge {
         /// Name of the branch to merge (defaults to current branch)
@@ -151,6 +166,11 @@ pub fn run() -> Result<()> {
 
     match cli.command {
         Commands::Add { branch_name } => create_worktree(&branch_name),
+        Commands::Open {
+            branch_name,
+            run_hooks,
+            force_files,
+        } => open_worktree(&branch_name, run_hooks, force_files),
         Commands::Merge {
             branch_name,
             ignore_uncommitted,
@@ -189,6 +209,29 @@ fn create_worktree(branch_name: &str) -> Result<()> {
 
     println!(
         "✓ Successfully created worktree and tmux window for '{}'\n  Worktree: {}",
+        result.branch_name,
+        result.worktree_path.display()
+    );
+
+    Ok(())
+}
+
+fn open_worktree(branch_name: &str, run_hooks: bool, force_files: bool) -> Result<()> {
+    let config = config::Config::load()?;
+
+    if run_hooks && !config.post_create.is_empty() {
+        println!("Running setup commands...");
+    }
+
+    let result = workflow::open(branch_name, run_hooks, force_files, &config)
+        .context("Failed to open worktree environment")?;
+
+    if result.post_create_hooks_run > 0 {
+        println!("✓ Setup complete");
+    }
+
+    println!(
+        "✓ Successfully opened tmux window for '{}'\n  Worktree: {}",
         result.branch_name,
         result.worktree_path.display()
     );
