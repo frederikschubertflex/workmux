@@ -416,6 +416,10 @@ pub fn remove(
         return Err(anyhow!("Not in a git repository"));
     }
 
+    let repo_root = git::get_repo_root()?;
+    std::env::set_current_dir(&repo_root)
+        .with_context(|| format!("Failed to change directory to repo root: {:?}", repo_root))?;
+
     // Get worktree path - this also validates that the worktree exists
     let worktree_path = git::get_worktree_path(branch_name)
         .with_context(|| format!("No worktree found for branch '{}'", branch_name))?;
