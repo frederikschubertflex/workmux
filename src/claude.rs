@@ -1,12 +1,7 @@
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
-
-// Structure of ~/.claude.json - we use a flexible structure to handle unknown fields
-#[derive(Debug, Deserialize, Serialize)]
-struct ClaudeConfig(HashMap<PathBuf, serde_json::Value>);
 
 /// Get the path to the Claude Code configuration file
 fn get_config_path() -> Option<PathBuf> {
@@ -31,23 +26,39 @@ pub fn prune_stale_entries() -> Result<usize> {
     let contents = fs::read_to_string(&config_path)
         .with_context(|| format!("Failed to read Claude config: {:?}", config_path))?;
 
-    let mut config: ClaudeConfig = serde_json::from_str(&contents)
+    let mut config_value: serde_json::Value = serde_json::from_str(&contents)
         .with_context(|| format!("Failed to parse Claude config: {:?}", config_path))?;
 
-    let original_len = config.0.len();
-    let mut removed_count = 0;
+    let projects = match config_value
+        .as_object_mut()
+        .and_then(|root| root.get_mut("projects"))
+        .and_then(|projects| projects.as_object_mut())
+    {
+        Some(projects) => projects,
+        None => {
+            println!("No projects section found in {}", config_path.display());
+            return Ok(0);
+        }
+    };
 
-    config.0.retain(|path, _| {
+    let original_len = projects.len();
+    let mut stale_paths = Vec::new();
+
+    for path_str in projects.keys() {
+        let path = Path::new(path_str);
         // Only consider absolute paths that don't exist
         // We keep relative paths and existing paths
         if path.is_absolute() && !path.exists() {
             println!("  - Removing: {}", path.display());
-            removed_count += 1;
-            false
-        } else {
-            true
+            stale_paths.push(path_str.clone());
         }
-    });
+    }
+
+    let removed_count = stale_paths.len();
+
+    for path_str in &stale_paths {
+        projects.remove(path_str);
+    }
 
     if removed_count > 0 {
         // Create a backup
@@ -61,7 +72,7 @@ pub fn prune_stale_entries() -> Result<usize> {
         println!("\n✓ Created backup at {}", backup_path.display());
 
         // Write the new file
-        let new_contents = serde_json::to_string_pretty(&config.0)?;
+        let new_contents = serde_json::to_string_pretty(&config_value)?;
         fs::write(&config_path, new_contents).with_context(|| {
             format!("Failed to write updated Claude config to {:?}", config_path)
         })?;
