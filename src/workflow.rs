@@ -544,8 +544,8 @@ pub fn cleanup(
         // Poll to confirm the window is gone before proceeding. This prevents a race
         // condition where we try to delete the directory before the shell inside
         // the tmux window has terminated.
-        const MAX_RETRIES: u32 = 10;
-        const RETRY_DELAY: Duration = Duration::from_millis(100);
+        const MAX_RETRIES: u32 = 20;
+        const RETRY_DELAY: Duration = Duration::from_millis(50);
         let mut window_is_gone = false;
         for _ in 0..MAX_RETRIES {
             if !tmux::window_exists(prefix, branch_name)? {
