@@ -135,20 +135,43 @@ pub fn build_startup_command(command: Option<&str>) -> Result<Option<String>> {
         None => return Ok(None),
     };
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let shell_path = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let shell_name = std::path::Path::new(&shell_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    // Manually trigger shell pre-prompt hooks to ensure tools like direnv,
+    // nvm, and rbenv are loaded before the user command is executed. These
+    // hooks are normally only triggered before an interactive prompt.
+    let pre_command_hook = match shell_name {
+        "zsh" => "for f in \"${precmd_functions[@]}\"; do \"$f\"; done",
+        "bash" => "eval \"${PROMPT_COMMAND:-}\"",
+        "fish" => "functions -q fish_prompt; and emit fish_prompt",
+        _ => "true", // No-op for other shells
+    };
 
     // To run `user_command` and then `exec shell` inside a new shell instance,
-    // we use the form: `$SHELL -c '<user_command>; exec $SHELL'`.
+    // we use the form: `$SHELL -ic '<hooks>; <user_command>; exec $SHELL -l'`.
     // We must escape single quotes within the user command using POSIX-style escaping.
     let escaped_command = command.replace('\'', r#"'\''"#);
 
-    // Use a login shell (-l) to match tmux's default environment. This keeps pane
-    // commands from sourcing interactive-only rc files (like ~/.zshrc) that would
-    // otherwise alter PATH compared to panes without explicit commands.
+    let inner_command = format!(
+        "{pre_hook}; {user_cmd}; exec {shell} -l",
+        pre_hook = pre_command_hook,
+        user_cmd = escaped_command,
+        shell = shell_path,
+    );
+
+    // The initial shell is interactive (-i) to ensure rc files (~/.bashrc,
+    // ~/.zshrc) are sourced, which is where shell hooks are configured. It is
+    // NOT a login shell (-l), as this can prevent rc files from sourcing in
+    // bash. The final `exec $SHELL -l` ensures the user is left in a login
+    // shell, matching tmux's default behavior.
     let full_command = format!(
-        "{shell} -lic '{escaped_command}; exec {shell} -l'",
-        shell = shell,
-        escaped_command = escaped_command
+        "{shell} -ic '{inner_command}'",
+        shell = shell_path,
+        inner_command = inner_command,
     );
 
     Ok(Some(full_command))
