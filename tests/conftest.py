@@ -254,18 +254,35 @@ def run_workmux_add(
     )
 
 
+def create_commit(env: TmuxEnvironment, path: Path, message: str):
+    """Creates and commits a file within the test env at a specific path."""
+    (path / f"file_for_{message.replace(' ', '_').replace(':', '')}.txt").write_text(
+        f"content for {message}"
+    )
+    # Use subprocess directly to specify cwd easily
+    subprocess.run(["git", "add", "."], cwd=path, check=True, env=env.env)
+    subprocess.run(["git", "commit", "-m", message], cwd=path, check=True, env=env.env)
+
+
+def create_dirty_file(path: Path, filename: str = "dirty.txt"):
+    """Creates an uncommitted file."""
+    (path / filename).write_text("uncommitted changes")
+
+
 def run_workmux_remove(
     env: TmuxEnvironment,
     workmux_exe_path: Path,
     repo_path: Path,
     branch_name: str,
     force: bool = False,
+    user_input: Optional[str] = None,
+    expect_fail: bool = False,
 ) -> None:
     """
     Helper to run `workmux remove` command inside the isolated tmux session.
 
     Uses tmux run-shell -b to avoid hanging when remove kills its own window.
-    Asserts that the command completes successfully.
+    Asserts that the command completes successfully unless expect_fail is True.
 
     Args:
         env: The isolated tmux environment
@@ -273,6 +290,8 @@ def run_workmux_remove(
         repo_path: Path to the git repository
         branch_name: Name of the branch/worktree to remove
         force: Whether to use -f flag to skip confirmation
+        user_input: Optional string to pipe to stdin (e.g., 'y' for confirmation)
+        expect_fail: If True, asserts the command fails (non-zero exit code)
     """
     stdout_file = env.tmp_path / "workmux_remove_stdout.txt"
     stderr_file = env.tmp_path / "workmux_remove_stderr.txt"
@@ -284,8 +303,10 @@ def run_workmux_remove(
             f.unlink()
 
     force_flag = "-f " if force else ""
+    input_cmd = f"echo '{user_input}' | " if user_input else ""
     remove_script = (
         f"cd {repo_path} && "
+        f"{input_cmd}"
         f"{workmux_exe_path} remove {force_flag}{branch_name} "
         f"> {stdout_file} 2> {stderr_file}; "
         f"echo $? > {exit_code_file}"
@@ -299,8 +320,15 @@ def run_workmux_remove(
     )
 
     exit_code = int(exit_code_file.read_text().strip())
-    if exit_code != 0:
-        stderr = stderr_file.read_text() if stderr_file.exists() else ""
-        raise AssertionError(
-            f"workmux remove failed with exit code {exit_code}\n{stderr}"
-        )
+    stderr = stderr_file.read_text() if stderr_file.exists() else ""
+
+    if expect_fail:
+        if exit_code == 0:
+            raise AssertionError(
+                f"workmux remove was expected to fail but succeeded.\nStderr:\n{stderr}"
+            )
+    else:
+        if exit_code != 0:
+            raise AssertionError(
+                f"workmux remove failed with exit code {exit_code}\nStderr:\n{stderr}"
+            )
