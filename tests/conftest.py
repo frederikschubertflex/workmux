@@ -1,9 +1,12 @@
 import os
+import shlex
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Generator, List, Optional
+
+from dataclasses import dataclass
 
 import pytest
 import yaml
@@ -195,6 +198,15 @@ def poll_until(
     return False
 
 
+@dataclass
+class WorkmuxCommandResult:
+    """Represents the result of running a workmux command inside tmux."""
+
+    exit_code: int
+    stdout: str
+    stderr: str
+
+
 @pytest.fixture(scope="session")
 def workmux_exe_path() -> Path:
     """
@@ -210,12 +222,15 @@ def write_workmux_config(
     repo_path: Path,
     panes: Optional[List[Dict[str, Any]]] = None,
     post_create: Optional[List[str]] = None,
+    files: Optional[Dict[str, Any]] = None,
     env: Optional[TmuxEnvironment] = None,
 ):
     """Creates a .workmux.yaml file from structured data and optionally commits it."""
     config: Dict[str, Any] = {"panes": panes if panes is not None else []}
     if post_create:
         config["post_create"] = post_create
+    if files:
+        config["files"] = files
     (repo_path / ".workmux.yaml").write_text(yaml.dump(config))
 
     # If env is provided, commit the config file to avoid uncommitted changes in merge tests
@@ -247,11 +262,13 @@ def run_workmux_command(
     repo_path: Path,
     command: str,
     pre_run_tmux_cmds: Optional[List[List[str]]] = None,
-) -> None:
+    expect_fail: bool = False,
+    working_dir: Optional[Path] = None,
+) -> WorkmuxCommandResult:
     """
     Helper to run a workmux command inside the isolated tmux session.
 
-    Asserts that the command completes successfully.
+    Allows tests to optionally expect failure while still capturing stdout/stderr.
 
     Args:
         env: The isolated tmux environment
@@ -259,41 +276,59 @@ def run_workmux_command(
         repo_path: Path to the git repository
         command: The workmux command to run (e.g., "add feature-branch")
         pre_run_tmux_cmds: Optional list of tmux commands to run before the command
+        expect_fail: Whether the command is expected to fail (non-zero exit)
+        working_dir: Optional directory to run the command from (defaults to repo_path)
     """
     stdout_file = env.tmp_path / "workmux_stdout.txt"
     stderr_file = env.tmp_path / "workmux_stderr.txt"
     exit_code_file = env.tmp_path / "workmux_exit_code.txt"
 
-    # Clean up any previous files
     for f in [stdout_file, stderr_file, exit_code_file]:
         if f.exists():
             f.unlink()
 
-    # Execute any pre-run setup commands in tmux
     if pre_run_tmux_cmds:
         for cmd_args in pre_run_tmux_cmds:
             env.tmux(cmd_args)
 
+    workdir = working_dir if working_dir is not None else repo_path
+    workdir_str = shlex.quote(str(workdir))
+    exe_str = shlex.quote(str(workmux_exe_path))
+    stdout_str = shlex.quote(str(stdout_file))
+    stderr_str = shlex.quote(str(stderr_file))
+    exit_code_str = shlex.quote(str(exit_code_file))
+
     workmux_cmd = (
-        f"cd {repo_path} && "
-        f"{workmux_exe_path} {command} "
-        f"> {stdout_file} 2> {stderr_file}; "
-        f"echo $? > {exit_code_file}"
+        f"cd {workdir_str} && "
+        f"{exe_str} {command} "
+        f"> {stdout_str} 2> {stderr_str}; "
+        f"echo $? > {exit_code_str}"
     )
 
     env.tmux(["send-keys", "-t", "test:", workmux_cmd, "C-m"])
 
-    # Wait for command to complete
     assert poll_until(exit_code_file.exists, timeout=5.0), (
         "workmux command did not complete in time"
     )
 
-    exit_code = int(exit_code_file.read_text().strip())
-    if exit_code != 0:
-        stderr = stderr_file.read_text() if stderr_file.exists() else ""
-        raise AssertionError(
-            f"workmux {command} failed with exit code {exit_code}\n{stderr}"
-        )
+    result = WorkmuxCommandResult(
+        exit_code=int(exit_code_file.read_text().strip()),
+        stdout=stdout_file.read_text() if stdout_file.exists() else "",
+        stderr=stderr_file.read_text() if stderr_file.exists() else "",
+    )
+
+    if expect_fail:
+        if result.exit_code == 0:
+            raise AssertionError(
+                f"workmux {command} was expected to fail but succeeded.\nStdout:\n{result.stdout}"
+            )
+    else:
+        if result.exit_code != 0:
+            raise AssertionError(
+                f"workmux {command} failed with exit code {result.exit_code}\n{result.stderr}"
+            )
+
+    return result
 
 
 def run_workmux_add(
@@ -317,6 +352,39 @@ def run_workmux_add(
     """
     run_workmux_command(
         env, workmux_exe_path, repo_path, f"add {branch_name}", pre_run_tmux_cmds
+    )
+
+
+def run_workmux_open(
+    env: TmuxEnvironment,
+    workmux_exe_path: Path,
+    repo_path: Path,
+    branch_name: str,
+    *,
+    run_hooks: bool = False,
+    force_files: bool = False,
+    pre_run_tmux_cmds: Optional[List[List[str]]] = None,
+    expect_fail: bool = False,
+) -> WorkmuxCommandResult:
+    """
+    Helper to run `workmux open` command inside the isolated tmux session.
+
+    Returns the command result so tests can assert on stdout/stderr.
+    """
+    flags: List[str] = []
+    if run_hooks:
+        flags.append("--run-hooks")
+    if force_files:
+        flags.append("--force-files")
+
+    flag_str = f" {' '.join(flags)}" if flags else ""
+    return run_workmux_command(
+        env,
+        workmux_exe_path,
+        repo_path,
+        f"open {branch_name}{flag_str}",
+        pre_run_tmux_cmds=pre_run_tmux_cmds,
+        expect_fail=expect_fail,
     )
 
 
