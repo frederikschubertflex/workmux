@@ -97,6 +97,14 @@ def setup_git_repo(path: Path):
     )
 
 
+@pytest.fixture
+def repo_path(isolated_tmux_server: "TmuxEnvironment") -> Path:
+    """Initializes a git repo in the test env and returns its path."""
+    path = isolated_tmux_server.tmp_path
+    setup_git_repo(path)
+    return path
+
+
 def poll_until(
     condition: Callable[[], bool],
     timeout: float = 5.0,
