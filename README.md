@@ -33,6 +33,7 @@ Perfect for running multiple AI agents in parallel without conflict.
 - Run post-creation hooks (install dependencies, setup database, etc.)
 - Copy or symlink configuration files (`.env`, `node_modules`) into new
   worktrees
+- Start agents with a prompt directly via `--prompt` or `--prompt-file`
 - Merge branches and clean up everything (worktree, tmux window, branches) in
   one command (`merge`)
 - List all worktrees with their tmux and merge status
@@ -154,7 +155,7 @@ panes:
   - `copy`: List of glob patterns for files/directories to copy
   - `symlink`: List of glob patterns for files/directories to symlink
 
-**Default behavior:**
+#### Default behavior
 
 - Worktrees are created in `<project>__worktrees` as a sibling directory to your
   project by default
@@ -222,7 +223,7 @@ immediately. If the branch doesn't exist, it will be created automatically.
   workmux automatically fetches it and creates a local branch with the name derived
   from the remote branch (e.g., `origin/feature/foo` creates local branch `feature/foo`).
 
-**Common options:**
+#### Useful options
 
 - `--base <branch|commit|tag>`: Specify a base branch, commit, or tag to branch from
   when creating a new branch. By default, new branches are created from your main
@@ -230,13 +231,12 @@ immediately. If the branch doesn't exist, it will be created automatically.
 - `-c, --from-current`: Use your currently checked out branch as the base. This is a
   shorthand for passing that branch explicitly via `--base` and is helpful when
   stacking feature branches.
-- `-p, --prompt <text>`: Provide an inline prompt that will be written to `PROMPT.md` in
-  the new worktree and automatically passed to AI agent panes (mutually exclusive
-  with `--prompt-file`).
+- `-p, --prompt <text>`: Provide an inline prompt that will be automatically passed to
+  AI agent panes (mutually exclusive with `--prompt-file`).
 - `-P, --prompt-file <path>`: Provide a path to a file whose contents will be used as the
   prompt (mutually exclusive with `--prompt`).
 
-**What happens:**
+#### What happens
 
 1. Creates a git worktree at
    `<project_root>/../<project_name>__worktrees/<branch-name>`
@@ -247,7 +247,7 @@ immediately. If the branch doesn't exist, it will be created automatically.
 5. Sets up your configured tmux pane layout
 6. Automatically switches your tmux client to the new window
 
-**Examples:**
+#### Examples
 
 ```bash
 # Create a new branch and worktree
@@ -255,9 +255,6 @@ workmux add user-auth
 
 # Use an existing branch
 workmux add existing-work
-
-# Branch names with slashes work too
-workmux add feature/new-api
 
 # Create a new branch from a specific base
 workmux add hotfix --base production
@@ -273,20 +270,17 @@ workmux add origin/feature/foo
 
 # Create a worktree with an inline prompt for AI agents
 workmux add feature/ai --prompt "Implement user authentication with OAuth"
-# Or use the shorthand
-workmux add feature/ai -p "Implement user authentication with OAuth"
 
 # Create a worktree with a prompt from a file
 workmux add feature/refactor --prompt-file task-description.md
 ```
 
-**AI agent integration:**
+#### AI agent integration
 
 When you provide a prompt via `--prompt` or `--prompt-file`, workmux automatically
 injects the prompt into panes running AI agent commands (`claude`, `codex`, `gemini`)
 without requiring any `.workmux.yaml` changes:
 
-- The prompt content is written to `PROMPT.md` in the worktree root
 - Panes with known AI agents are automatically started with the given prompt
 - You can keep your `.workmux.yaml` pane configuration simple (e.g.,
   `panes: [{ command: "claude" }]`) and let workmux handle prompt injection at runtime
@@ -304,14 +298,14 @@ resources (worktree, tmux window, and local branch).
 - `[branch-name]`: Optional name of the branch to merge. If omitted,
   automatically detects the current branch from the worktree you're in.
 
-**Common options:**
+#### Useful options
 
 - `--ignore-uncommitted`: Commit any staged changes before merging without
   opening an editor
 - `--delete-remote`, `-r`: Also delete the remote branch after a successful
   merge
 
-**Merge strategies:**
+#### Merge strategies
 
 By default, `workmux merge` performs a standard merge commit. You can customize
 the merge behavior with these mutually exclusive flags:
@@ -322,7 +316,7 @@ the merge behavior with these mutually exclusive flags:
 - `--squash`: Squash all commits from the feature branch into a single commit on
   main. You'll be prompted to provide a commit message in your editor.
 
-**What happens:**
+#### What happens
 
 1. Determines which branch to merge (specified branch or current branch if
    omitted)
@@ -336,13 +330,13 @@ the merge behavior with these mutually exclusive flags:
 6. Removes the worktree
 7. Deletes the local branch
 
-**Typical workflow:**
+#### Typical workflow
 
 When you're done working in a worktree, simply run `workmux merge` from within
 that worktree's tmux window. The command will automatically detect which branch
 you're on, merge it into main, and close the current window as part of cleanup.
 
-**Examples:**
+#### Examples
 
 ```bash
 # Merge branch from main branch (default: merge commit)
@@ -371,14 +365,14 @@ the branch). Useful for abandoning work or cleaning up experimental branches.
 
 - `<branch-name>`: Name of the branch to remove.
 
-**Common options:**
+#### Useful options
 
 - `--force`, `-f`: Skip confirmation prompt and ignore uncommitted changes
 - `--delete-remote`, `-r`: Also delete the remote branch
 - `--keep-branch`, `-k`: Remove only the worktree and tmux window while keeping
   the local branch (incompatible with `--delete-remote`)
 
-**Examples:**
+#### Examples
 
 ```bash
 # Remove with confirmation if unmerged
@@ -403,14 +397,14 @@ workmux rm -f -r old-work
 
 Lists all git worktrees with their tmux window status and merge status.
 
-**Examples:**
+#### Examples
 
 ```bash
 # List all worktrees
 workmux list
 ```
 
-**Example output:**
+#### Example output
 
 ```
 BRANCH      TMUX    UNMERGED    PATH
@@ -420,7 +414,7 @@ user-auth   ✓       -           ~/project__worktrees/user-auth
 bug-fix     ✓       ●           ~/project__worktrees/bug-fix
 ```
 
-**Key:**
+#### Key
 
 - `✓` in TMUX column = tmux window exists for this worktree
 - `●` in UNMERGED column = branch has commits not merged into main
@@ -433,7 +427,7 @@ bug-fix     ✓       ●           ~/project__worktrees/bug-fix
 Generates `.workmux.yaml` with example configuration and `"<global>"`
 placeholder usage.
 
-**Examples:**
+#### Examples
 
 ```bash
 workmux init
@@ -449,13 +443,13 @@ tmux window for a worktree you are still working on.
 
 - `<branch-name>`: Name of the branch that has an existing worktree.
 
-**Common options:**
+#### Useful options
 
 - `--run-hooks`: Re-runs the `post_create` commands (these block window creation).
 - `--force-files`: Re-applies file copy/symlink operations. Useful for restoring
   a deleted `.env` file.
 
-**What happens:**
+#### What happens
 
 1. Verifies that a worktree for `<branch-name>` exists and a tmux window does
    not.
@@ -464,7 +458,7 @@ tmux window for a worktree you are still working on.
 4. Sets up your configured tmux pane layout.
 5. Automatically switches your tmux client to the new window.
 
-**Examples:**
+#### Examples
 
 ```bash
 # Open a window for an existing worktree
@@ -486,27 +480,27 @@ directories. When you run Claude Code in worktrees, it stores configuration in
 `~/.claude.json`. Over time, as worktrees are merged or removed, this file can
 accumulate entries for paths that no longer exist.
 
-**What happens:**
+#### What happens
 
 1. Scans `~/.claude.json` for entries pointing to non-existent directories
 2. Creates a backup at `~/.claude.json.bak` before making changes
 3. Removes all stale entries
 4. Reports the number of entries cleaned up
 
-**Safety:**
+#### Safety
 
 - Only removes entries for absolute paths that don't exist
 - Creates a backup before modifying the file
 - Preserves all valid entries and relative paths
 
-**Examples:**
+#### Examples
 
 ```bash
 # Clean up stale Claude Code entries
 workmux claude prune
 ```
 
-**Example output:**
+#### Example output
 
 ```
   - Removing: /Users/user/project__worktrees/old-feature
@@ -524,7 +518,7 @@ tab-completion for commands and dynamic branch name suggestions.
 
 - `<shell>`: Shell type: `bash`, `zsh`, or `fish`.
 
-**Examples:**
+#### Examples
 
 ```bash
 # Generate completions for zsh
