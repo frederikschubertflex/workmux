@@ -4,11 +4,8 @@ panes:
   - split: horizontal # Second pane with default shell
 
 # Commands run after worktree creation (blocks window creation, keep fast)
-post_create:
-  - python -m venv tests/venv
-  - source tests/venv/bin/activate && pip install --disable-pip-version-check -r tests/requirements.txt
-
 files:
   symlink:
     - CLAUDE.md
     - target # Share Rust build cache for faster compilation
+    - tests/venv # Share Python venv for faster worktree creation
