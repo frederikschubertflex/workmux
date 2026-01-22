@@ -319,6 +319,25 @@ enum Commands {
         active: bool,
     },
 
+    /// Send a message to an agent pane for a worktree
+    Send {
+        /// Worktree handle (defaults to current worktree if omitted)
+        #[arg(long)]
+        handle: Option<String>,
+
+        /// Target pane ID (required if multiple agent panes exist)
+        #[arg(long)]
+        pane_id: Option<String>,
+
+        /// Message to send (reads from stdin if omitted)
+        #[arg(long)]
+        message: Option<String>,
+
+        /// Send as a shell command (single-line only)
+        #[arg(long)]
+        command: bool,
+    },
+
     /// Capture output from an agent pane
     Capture {
         /// Worktree handle (defaults to current worktree if omitted)
@@ -478,6 +497,12 @@ pub fn run() -> Result<()> {
             let show_all = !active;
             command::list::run(pr, show_all)
         }
+        Commands::Send {
+            handle,
+            pane_id,
+            message,
+            command,
+        } => command::send::run(handle, pane_id, message, command),
         Commands::Capture {
             handle,
             pane_id,

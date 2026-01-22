@@ -417,6 +417,7 @@ alias wm='workmux'
 - [`merge`](#workmux-merge-branch-name) - Merge a branch and clean up everything
 - [`remove`](#workmux-remove-name-alias-rm) - Remove worktrees without merging
 - [`list`](#workmux-list) - List all worktrees with status
+- [`send`](#workmux-send) - Send a message to an agent pane
 - [`capture`](#workmux-capture) - Capture output from an agent pane
 - [`open`](#workmux-open-name) - Open a tmux window for an existing worktree
 - [`close`](#workmux-close-name) - Close a worktree's tmux window (keeps
@@ -1068,6 +1069,25 @@ project bug-fix     bug-fix     active    1       ~/project__worktrees/bug-fix
 
 - `STATE=active` means a tmux window exists for this worktree.
 - `TMUX=1` means a tmux window exists, `TMUX=0` means none.
+
+---
+
+### `workmux send`
+
+Send a message to the agent pane for a worktree.
+
+#### Examples
+
+```bash
+# Send a message to the agent pane for the current worktree
+workmux send --message "Review the failing tests"
+
+# Send a message to a specific worktree
+workmux send --handle feature-login --message "Continue with auth flow"
+
+# Send a shell command (single line)
+workmux send --handle feature-login --command --message "!git status"
+```
 
 ---
 
