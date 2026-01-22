@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
 
-use crate::{config, git, tmux};
+use crate::{config, git, tmux, verbosity};
 
 pub struct AgentPaneTarget {
     pub pane_id: String,
@@ -28,8 +28,8 @@ pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPa
         return Err(anyhow!("No tmux panes found. Is tmux running?"));
     }
 
-    let mut candidates: Vec<Candidate> = Vec::new();
-    let mut seen_panes: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut candidates_by_pane: std::collections::HashMap<String, Candidate> =
+        std::collections::HashMap::new();
 
     for repo_root in repo_roots {
         let repo_config = config::Config::load_for_repo_root(&repo_root, None)?;
@@ -39,14 +39,11 @@ pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPa
         for pane in panes.iter().filter(|p| {
             tmux::window_matches_handle(&p.window_name, handle, &prefixed_window_name)
         }) {
-            if !seen_panes.insert(pane.pane_id.clone()) {
-                continue;
-            }
             let path_matches = worktree_path
                 .as_ref()
                 .map(|path| pane.current_path.starts_with(path))
                 .unwrap_or_else(|| pane.current_path.starts_with(&repo_root));
-            candidates.push(Candidate {
+            let candidate = Candidate {
                 pane_id: pane.pane_id.clone(),
                 session: pane.session.clone(),
                 window_name: pane.window_name.clone(),
@@ -55,9 +52,21 @@ pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPa
                 pane_role: pane.pane_role.clone(),
                 agent: repo_config.agent.clone(),
                 path_matches,
-            });
+            };
+            match candidates_by_pane.entry(pane.pane_id.clone()) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(candidate);
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    if candidate.path_matches && !entry.get().path_matches {
+                        entry.insert(candidate);
+                    }
+                }
+            }
         }
     }
+
+    let candidates: Vec<Candidate> = candidates_by_pane.into_values().collect();
 
     if candidates.is_empty() {
         return Err(anyhow!(
@@ -155,7 +164,12 @@ fn resolve_repo_roots(config: &config::Config) -> Result<Vec<PathBuf>> {
     if let Some(repo_patterns) = config.repo_paths.as_ref() {
         let expanded = config::expand_repo_paths(repo_patterns)?;
         for pattern in expanded.unmatched_patterns {
-            eprintln!("workmux: repo_paths pattern '{}' did not match any paths", pattern);
+            if verbosity::is_verbose() {
+                eprintln!(
+                    "workmux: repo_paths pattern '{}' did not match any paths",
+                    pattern
+                );
+            }
         }
 
         if expanded.paths.is_empty() {
@@ -167,24 +181,30 @@ fn resolve_repo_roots(config: &config::Config) -> Result<Vec<PathBuf>> {
         let mut roots = Vec::new();
         for repo_root in expanded.paths {
             if !repo_root.exists() {
-                eprintln!(
-                    "workmux: repo_paths entry '{}' does not exist; skipping",
-                    repo_root.display()
-                );
+                if verbosity::is_verbose() {
+                    eprintln!(
+                        "workmux: repo_paths entry '{}' does not exist; skipping",
+                        repo_root.display()
+                    );
+                }
                 continue;
             }
             if !repo_root.is_dir() {
-                eprintln!(
-                    "workmux: repo_paths entry '{}' is not a directory; skipping",
-                    repo_root.display()
-                );
+                if verbosity::is_verbose() {
+                    eprintln!(
+                        "workmux: repo_paths entry '{}' is not a directory; skipping",
+                        repo_root.display()
+                    );
+                }
                 continue;
             }
             if !git::is_git_repo_in(&repo_root)? {
-                eprintln!(
-                    "workmux: repo_paths entry '{}' is not a git repository; skipping",
-                    repo_root.display()
-                );
+                if verbosity::is_verbose() {
+                    eprintln!(
+                        "workmux: repo_paths entry '{}' is not a git repository; skipping",
+                        repo_root.display()
+                    );
+                }
                 continue;
             }
             roots.push(repo_root);
