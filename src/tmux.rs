@@ -15,15 +15,7 @@ pub fn prefixed(prefix: &str, window_name: &str) -> String {
 }
 
 pub fn window_matches_handle(window_name: &str, handle: &str, prefixed: &str) -> bool {
-    if window_name == handle || window_name == prefixed {
-        return true;
-    }
-
-    let Some(prefix) = window_name.strip_suffix(handle) else {
-        return false;
-    };
-
-    !prefix.is_empty() && (prefix.ends_with(' ') || prefix.ends_with('\t'))
+    window_name == handle || window_name == prefixed
 }
 
 /// Get all tmux window names in a single call
@@ -1420,10 +1412,10 @@ mod tests {
 
         assert!(window_matches_handle("feature", handle, prefixed));
         assert!(window_matches_handle("wm-feature", handle, prefixed));
-        assert!(window_matches_handle("x feature", handle, prefixed));
-        assert!(window_matches_handle("x\tfeature", handle, prefixed));
         assert!(!window_matches_handle("xfeature", handle, prefixed));
         assert!(!window_matches_handle("featurex", handle, prefixed));
+        assert!(!window_matches_handle("x feature", handle, prefixed));
+        assert!(!window_matches_handle("x\tfeature", handle, prefixed));
     }
 
     // --- rewrite_agent_command tests for POSIX shells ---

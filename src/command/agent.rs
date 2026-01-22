@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::{config, git, tmux};
 
@@ -16,6 +16,7 @@ struct Candidate {
     status: Option<String>,
     pane_role: Option<String>,
     agent: Option<String>,
+    path_matches: bool,
 }
 
 pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPaneTarget> {
@@ -32,6 +33,7 @@ pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPa
 
     for repo_root in repo_roots {
         let repo_config = config::Config::load_for_repo_root(&repo_root, None)?;
+        let worktree_path = find_worktree_path(&repo_root, handle)?;
         let prefixed_window_name = tmux::prefixed(repo_config.window_prefix(), handle);
 
         for pane in panes.iter().filter(|p| {
@@ -40,6 +42,10 @@ pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPa
             if !seen_panes.insert(pane.pane_id.clone()) {
                 continue;
             }
+            let path_matches = worktree_path
+                .as_ref()
+                .map(|path| pane.current_path.starts_with(path))
+                .unwrap_or_else(|| pane.current_path.starts_with(&repo_root));
             candidates.push(Candidate {
                 pane_id: pane.pane_id.clone(),
                 session: pane.session.clone(),
@@ -48,6 +54,7 @@ pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPa
                 status: pane.status.clone(),
                 pane_role: pane.pane_role.clone(),
                 agent: repo_config.agent.clone(),
+                path_matches,
             });
         }
     }
@@ -88,6 +95,16 @@ pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPa
         ));
     }
 
+    let has_path_match = agent_candidates.iter().any(|candidate| candidate.path_matches);
+    if has_path_match {
+        agent_candidates.retain(|candidate| candidate.path_matches);
+    } else if agent_candidates.len() == 1 {
+        return Err(anyhow!(
+            "Found agent pane for handle '{}' but its cwd is outside the repository. Re-run with --pane-id or ensure the pane is inside the repo.",
+            handle
+        ));
+    }
+
     if agent_candidates.len() > 1 {
         let mut message = format!(
             "Multiple agent panes found for handle '{}'. Re-run with --pane-id.\n",
@@ -98,13 +115,15 @@ pub fn resolve_agent_pane(handle: &str, pane_id: Option<&str>) -> Result<AgentPa
                 .status
                 .as_deref()
                 .unwrap_or("-");
+            let path_note = if candidate.path_matches { " path=ok" } else { "" };
             message.push_str(&format!(
-                "  pane_id={} session={} window={} status={} cmd={}\n",
+                "  pane_id={} session={} window={} status={} cmd={}{}\n",
                 candidate.pane_id,
                 candidate.session,
                 candidate.window_name,
                 status,
-                candidate.current_command
+                candidate.current_command,
+                path_note
             ));
         }
         return Err(anyhow!(message));
@@ -181,4 +200,16 @@ fn resolve_repo_roots(config: &config::Config) -> Result<Vec<PathBuf>> {
     } else {
         Ok(vec![git::get_repo_root()?])
     }
+}
+
+fn find_worktree_path(repo_root: &Path, handle: &str) -> Result<Option<PathBuf>> {
+    let worktrees = git::list_worktrees_in(repo_root)?;
+    for (path, _branch) in worktrees {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name == handle
+        {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
 }
