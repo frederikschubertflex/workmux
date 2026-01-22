@@ -1,4 +1,4 @@
-use crate::{config, git, workflow};
+use crate::{config, git, verbosity, workflow};
 use anyhow::{Result, anyhow};
 use std::path::Path;
 use tabled::{
@@ -46,7 +46,12 @@ pub fn run(show_pr: bool, show_all: bool) -> Result<()> {
     if let Some(repo_patterns) = config.repo_paths.as_ref() {
         let expanded = config::expand_repo_paths(repo_patterns)?;
         for pattern in expanded.unmatched_patterns {
-            eprintln!("workmux: repo_paths pattern '{}' did not match any paths", pattern);
+            if verbosity::is_verbose() {
+                eprintln!(
+                    "workmux: repo_paths pattern '{}' did not match any paths",
+                    pattern
+                );
+            }
         }
 
         if expanded.paths.is_empty() {
@@ -58,24 +63,30 @@ pub fn run(show_pr: bool, show_all: bool) -> Result<()> {
         let mut has_repo = false;
         for repo_root in expanded.paths {
             if !repo_root.exists() {
-                eprintln!(
-                    "workmux: repo_paths entry '{}' does not exist; skipping",
-                    repo_root.display()
-                );
+                if verbosity::is_verbose() {
+                    eprintln!(
+                        "workmux: repo_paths entry '{}' does not exist; skipping",
+                        repo_root.display()
+                    );
+                }
                 continue;
             }
             if !repo_root.is_dir() {
-                eprintln!(
-                    "workmux: repo_paths entry '{}' is not a directory; skipping",
-                    repo_root.display()
-                );
+                if verbosity::is_verbose() {
+                    eprintln!(
+                        "workmux: repo_paths entry '{}' is not a directory; skipping",
+                        repo_root.display()
+                    );
+                }
                 continue;
             }
             if !git::is_git_repo_in(&repo_root)? {
-                eprintln!(
-                    "workmux: repo_paths entry '{}' is not a git repository; skipping",
-                    repo_root.display()
-                );
+                if verbosity::is_verbose() {
+                    eprintln!(
+                        "workmux: repo_paths entry '{}' is not a git repository; skipping",
+                        repo_root.display()
+                    );
+                }
                 continue;
             }
             has_repo = true;

@@ -13,6 +13,7 @@ mod prompt;
 mod spinner;
 mod template;
 mod tmux;
+mod verbosity;
 mod workflow;
 
 use anyhow::Result;

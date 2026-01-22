@@ -169,6 +169,10 @@ impl clap::builder::TypedValueParser for GitBranchParser {
 #[command(about = "An opinionated workflow tool that orchestrates git worktrees and tmux")]
 #[command(after_help = "Run 'workmux docs' for detailed documentation.")]
 struct Cli {
+    /// Show warnings for skipped repo_paths entries
+    #[arg(short = 'v', long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -434,6 +438,7 @@ enum ClaudeCommands {
 // --- Public Entry Point ---
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
+    crate::verbosity::set_verbose(cli.verbose);
 
     match cli.command {
         Commands::Add {
