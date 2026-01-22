@@ -1,4 +1,5 @@
 pub mod add;
+pub mod agent;
 pub mod args;
 pub mod changelog;
 pub mod close;

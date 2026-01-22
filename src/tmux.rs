@@ -14,7 +14,6 @@ pub fn prefixed(prefix: &str, window_name: &str) -> String {
     format!("{}{}", prefix, window_name)
 }
 
-
 pub fn window_matches_handle(window_name: &str, handle: &str, prefixed: &str) -> bool {
     if window_name == handle || window_name == prefixed {
         return true;
@@ -176,6 +175,72 @@ pub fn get_client_active_pane_path() -> Result<PathBuf> {
     }
 
     Ok(PathBuf::from(path))
+}
+
+/// Snapshot of a tmux pane for agent targeting and automation.
+#[derive(Debug, Clone)]
+pub struct PaneSnapshot {
+    pub session: String,
+    pub window_name: String,
+    pub pane_id: String,
+    pub current_path: PathBuf,
+    pub pane_title: Option<String>,
+    pub status: Option<String>,
+    pub pane_role: Option<String>,
+    pub current_command: String,
+}
+
+/// List all panes across all sessions.
+pub fn list_panes() -> Result<Vec<PaneSnapshot>> {
+    if !is_running().unwrap_or(false) {
+        return Ok(Vec::new());
+    }
+
+    let format = "#{session_name}\t#{window_name}\t#{pane_id}\t#{pane_current_path}\t#{pane_title}\t#{@workmux_pane_status}\t#{@workmux_pane_role}\t#{pane_current_command}";
+
+    let output = Cmd::new("tmux")
+        .args(&["list-panes", "-a", "-F", format])
+        .run_and_capture_stdout()
+        .unwrap_or_default();
+
+    let mut panes = Vec::new();
+    for line in output.lines() {
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 8 {
+            continue;
+        }
+
+        let status = if parts[5].is_empty() {
+            None
+        } else {
+            Some(parts[5].to_string())
+        };
+
+        let pane_title = if parts[4].is_empty() {
+            None
+        } else {
+            Some(parts[4].to_string())
+        };
+
+        let pane_role = if parts[6].is_empty() {
+            None
+        } else {
+            Some(parts[6].to_string())
+        };
+
+        panes.push(PaneSnapshot {
+            session: parts[0].to_string(),
+            window_name: parts[1].to_string(),
+            pane_id: parts[2].to_string(),
+            current_path: PathBuf::from(parts[3]),
+            pane_title,
+            status,
+            pane_role,
+            current_command: parts[7].to_string(),
+        });
+    }
+
+    Ok(panes)
 }
 
 /// Information about a specific pane running a workmux agent
@@ -818,6 +883,17 @@ pub fn setup_panes(
     let mut pane_ids: Vec<String> = vec![initial_pane_id.to_string()];
     let effective_agent = task_agent.or(config.agent.as_deref());
     let shell = get_default_shell()?;
+    let pane_runs_agent = |pane_config: &PaneConfig| {
+        if pane_config.command.as_deref() == Some("<agent>") {
+            return effective_agent.is_some();
+        }
+
+        if let (Some(cmd), Some(agent_cmd)) = (pane_config.command.as_deref(), effective_agent) {
+            return crate::config::is_agent_command(cmd, agent_cmd);
+        }
+
+        false
+    };
 
     // Handle the first pane (initial pane from window creation)
     if let Some(pane_config) = panes.first() {
@@ -856,6 +932,10 @@ pub fn setup_panes(
                 && agent_needs_auto_status(effective_agent)
             {
                 let _ = set_pane_working_status(initial_pane_id, config);
+            }
+
+            if pane_options.run_commands && pane_runs_agent(pane_config) {
+                set_pane_role(initial_pane_id, "agent");
             }
         }
         if pane_config.focus {
@@ -915,6 +995,10 @@ pub fn setup_panes(
                     && agent_needs_auto_status(effective_agent)
                 {
                     let _ = set_pane_working_status(&pane_id, config);
+                }
+
+                if pane_options.run_commands && pane_runs_agent(pane_config) {
+                    set_pane_role(&pane_id, "agent");
                 }
 
                 pane_id
@@ -1085,6 +1169,15 @@ fn set_pane_working_status(pane_id: &str, config: &crate::config::Config) -> Res
 
     set_status_options(pane_id, icon, false);
     Ok(())
+}
+
+fn set_pane_role(pane_id: &str, role: &str) {
+    if let Err(e) = Cmd::new("tmux")
+        .args(&["set-option", "-p", "-t", pane_id, "@workmux_pane_role", role])
+        .run()
+    {
+        eprintln!("workmux: failed to set pane role: {}", e);
+    }
 }
 
 /// Sets status options on a pane (both window-level and pane-level).
