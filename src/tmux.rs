@@ -863,6 +863,8 @@ pub fn paste_multiline(pane_id: &str, content: &str) -> Result<()> {
         .run()
         .context("Failed to paste buffer to pane")?;
 
+    thread::sleep(Duration::from_millis(50));
+
     // Send Enter to submit the pasted content
     Cmd::new("tmux")
         .args(&["send-keys", "-t", pane_id, "Enter"])
