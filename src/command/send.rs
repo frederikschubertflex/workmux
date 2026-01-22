@@ -20,10 +20,11 @@ pub fn run(
         command::agent::resolve_agent_pane,
         tmux::paste_multiline,
         tmux::send_keys_to_agent,
+        tmux::send_keys,
     )
 }
 
-fn send_message<R, P, S>(
+fn send_message<R, P, S, L>(
     handle: &str,
     pane_id: Option<&str>,
     message: &str,
@@ -31,11 +32,13 @@ fn send_message<R, P, S>(
     resolve: R,
     paste: P,
     send: S,
+    send_line: L,
 ) -> Result<()>
 where
     R: Fn(&str, Option<&str>) -> Result<command::agent::AgentPaneTarget>,
     P: Fn(&str, &str) -> Result<()>,
     S: Fn(&str, &str, Option<&str>) -> Result<()>,
+    L: Fn(&str, &str) -> Result<()>,
 {
     let target = resolve(handle, pane_id)?;
 
@@ -47,8 +50,10 @@ where
             ));
         }
         send(&target.pane_id, trimmed, target.agent.as_deref())
-    } else {
+    } else if message.contains('\n') {
         paste(&target.pane_id, message)
+    } else {
+        send_line(&target.pane_id, message)
     }
 }
 
@@ -95,6 +100,7 @@ mod tests {
             resolve,
             |_, _| Ok(()),
             |_: &str, _: &str, _: Option<&str>| Ok(()),
+            |_: &str, _: &str| Ok(()),
         )
         .expect_err("expected newline rejection");
 
@@ -115,6 +121,7 @@ mod tests {
                 sent.set(message.to_string());
                 Ok(())
             },
+            |_: &str, _: &str| Ok(()),
         )
         .expect("send message");
 
@@ -135,10 +142,32 @@ mod tests {
                 Ok(())
             },
             |_: &str, _: &str, _: Option<&str>| Ok(()),
+            |_: &str, _: &str| Ok(()),
         )
         .expect("send message");
 
         assert_eq!(pasted.take(), "hello\nworld");
+    }
+
+    #[test]
+    fn test_send_message_single_line_uses_send_keys() {
+        let sent = Cell::new(String::new());
+        send_message(
+            "handle",
+            None,
+            "hello",
+            false,
+            resolve,
+            |_, _| Ok(()),
+            |_: &str, _: &str, _: Option<&str>| Ok(()),
+            |_: &str, message: &str| {
+                sent.set(message.to_string());
+                Ok(())
+            },
+        )
+        .expect("send message");
+
+        assert_eq!(sent.take(), "hello");
     }
 
     #[test]
