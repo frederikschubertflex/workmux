@@ -246,6 +246,10 @@ enum Commands {
         /// Worktree name (defaults to current directory if omitted)
         #[arg(value_parser = WorktreeHandleParser::new())]
         name: Option<String>,
+
+        /// Repository name to disambiguate handles across repo_paths
+        #[arg(long)]
+        repo: Option<String>,
     },
 
     /// Merge a branch, then clean up the worktree and tmux window
@@ -471,7 +475,7 @@ pub fn run() -> Result<()> {
             new,
             prompt,
         } => command::open::run(name.as_deref(), run_hooks, force_files, new, prompt),
-        Commands::Close { name } => command::close::run(name.as_deref()),
+        Commands::Close { name, repo } => command::close::run(name.as_deref(), repo.as_deref()),
         Commands::Merge {
             name,
             into,

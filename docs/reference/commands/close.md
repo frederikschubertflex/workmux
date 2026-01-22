@@ -7,18 +7,25 @@ description: Close a tmux window without removing the worktree or branch
 Closes the tmux window for a worktree without removing the worktree or branch. This is useful when you want to temporarily close a window to reduce clutter or free resources, but plan to return to the work later.
 
 ```bash
-workmux close [name]
+workmux close [name] [--repo <repo>]
 ```
 
 ## Arguments
 
 - `[name]`: Optional worktree name (the directory name). Defaults to current directory if omitted.
 
+## Options
+
+- `--repo`: Repository name to disambiguate handles across `repo_paths`.
+
 ## Examples
 
 ```bash
 # Close the window for a specific worktree
 workmux close user-auth
+
+# Close a handle across repo_paths by repository name
+workmux close user-auth --repo flex
 
 # Close the current worktree's window (run from within the worktree)
 workmux close
