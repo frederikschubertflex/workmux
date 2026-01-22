@@ -48,7 +48,21 @@ where
         return Err(anyhow!("Failed to capture pane {}", target.pane_id));
     };
 
-    Ok(output)
+    Ok(trim_output_lines(&output, lines))
+}
+
+fn trim_output_lines(output: &str, lines: u16) -> String {
+    let max_lines = usize::from(lines);
+    if max_lines == 0 {
+        return String::new();
+    }
+
+    let segments: Vec<&str> = output.split_inclusive('\n').collect();
+    if segments.len() <= max_lines {
+        return output.to_string();
+    }
+
+    segments[segments.len() - max_lines..].concat()
 }
 
 #[cfg(test)]
