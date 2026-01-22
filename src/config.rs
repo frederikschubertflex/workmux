@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -110,6 +111,11 @@ pub struct Config {
     /// Prefix for tmux window names (optional, defaults to "wm-")
     #[serde(default)]
     pub window_prefix: Option<String>,
+
+    /// Repository paths (or glob patterns) to include in multi-repo commands.
+    /// Used by `workmux list` when set in the global config.
+    #[serde(default)]
+    pub repo_paths: Option<Vec<String>>,
 
     /// Tmux pane configuration
     #[serde(default)]
@@ -299,49 +305,16 @@ impl Config {
         debug!("config:loading");
         let global_config = Self::load_global()?.unwrap_or_default();
         let project_config = Self::load_project()?.unwrap_or_default();
+        let repo_root = git::get_repo_root().ok();
+        Self::finalize_config(global_config, project_config, cli_agent, repo_root.as_deref())
+    }
 
-        let final_agent = cli_agent
-            .map(|s| s.to_string())
-            .or_else(|| project_config.agent.clone())
-            .or_else(|| global_config.agent.clone())
-            .unwrap_or_else(|| "claude".to_string());
-
-        let mut config = global_config.merge(project_config);
-        config.agent = Some(final_agent);
-
-        // After merging, apply sensible defaults for any values that are not configured.
-        if let Ok(repo_root) = git::get_repo_root() {
-            // Apply defaults that require inspecting the repository.
-            let has_node_modules = repo_root.join("pnpm-lock.yaml").exists()
-                || repo_root.join("package-lock.json").exists()
-                || repo_root.join("yarn.lock").exists();
-
-            // Default panes based on project type
-            if config.panes.is_none() {
-                if repo_root.join("CLAUDE.md").exists() {
-                    config.panes = Some(Self::claude_default_panes());
-                } else {
-                    config.panes = Some(Self::default_panes());
-                }
-            }
-
-            // Default pre_remove hook for Node.js projects
-            if config.pre_remove.is_none() && has_node_modules {
-                config.pre_remove = Some(vec![NODE_MODULES_CLEANUP_SCRIPT.to_string()]);
-            }
-        } else {
-            // Apply fallback defaults for when not in a git repo (e.g., `workmux init`).
-            if config.panes.is_none() {
-                config.panes = Some(Self::default_panes());
-            }
-        }
-
-        debug!(
-            agent = ?config.agent,
-            panes = config.panes.as_ref().map_or(0, |p| p.len()),
-            "config:loaded"
-        );
-        Ok(config)
+    /// Load and merge configuration for a specific repository root.
+    pub fn load_for_repo_root(repo_root: &Path, cli_agent: Option<&str>) -> anyhow::Result<Self> {
+        debug!(repo_root = %repo_root.display(), "config:loading for repo");
+        let global_config = Self::load_global()?.unwrap_or_default();
+        let project_config = Self::load_project_at(repo_root)?.unwrap_or_default();
+        Self::finalize_config(global_config, project_config, cli_agent, Some(repo_root))
     }
 
     /// Load configuration from a specific path.
@@ -407,6 +380,69 @@ impl Config {
         Ok(None)
     }
 
+    /// Load a project-specific configuration file from a known repository root.
+    fn load_project_at(repo_root: &Path) -> anyhow::Result<Option<Self>> {
+        let config_names = [".workmux.yaml", ".workmux.yml"];
+        for name in &config_names {
+            let config_path = repo_root.join(name);
+            if config_path.exists() {
+                debug!(path = %config_path.display(), "config:found project config");
+                return Self::load_from_path(&config_path);
+            }
+        }
+        Ok(None)
+    }
+
+    fn finalize_config(
+        global_config: Config,
+        project_config: Config,
+        cli_agent: Option<&str>,
+        repo_root: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        let final_agent = cli_agent
+            .map(|s| s.to_string())
+            .or_else(|| project_config.agent.clone())
+            .or_else(|| global_config.agent.clone())
+            .unwrap_or_else(|| "claude".to_string());
+
+        let mut config = global_config.merge(project_config);
+        config.agent = Some(final_agent);
+
+        // After merging, apply sensible defaults for any values that are not configured.
+        if let Some(repo_root) = repo_root {
+            // Apply defaults that require inspecting the repository.
+            let has_node_modules = repo_root.join("pnpm-lock.yaml").exists()
+                || repo_root.join("package-lock.json").exists()
+                || repo_root.join("yarn.lock").exists();
+
+            // Default panes based on project type
+            if config.panes.is_none() {
+                if repo_root.join("CLAUDE.md").exists() {
+                    config.panes = Some(Self::claude_default_panes());
+                } else {
+                    config.panes = Some(Self::default_panes());
+                }
+            }
+
+            // Default pre_remove hook for Node.js projects
+            if config.pre_remove.is_none() && has_node_modules {
+                config.pre_remove = Some(vec![NODE_MODULES_CLEANUP_SCRIPT.to_string()]);
+            }
+        } else {
+            // Apply fallback defaults for when not in a git repo (e.g., `workmux init`).
+            if config.panes.is_none() {
+                config.panes = Some(Self::default_panes());
+            }
+        }
+
+        debug!(
+            agent = ?config.agent,
+            panes = config.panes.as_ref().map_or(0, |p| p.len()),
+            "config:loaded"
+        );
+        Ok(config)
+    }
+
     /// Merge a project config into a global config.
     /// Project config takes precedence. For lists, "<global>" placeholder expands to global items.
     fn merge(self, project: Self) -> Self {
@@ -455,6 +491,7 @@ impl Config {
             main_branch,
             worktree_dir,
             window_prefix,
+            repo_paths,
             agent,
             merge_strategy,
             worktree_prefix,
@@ -802,9 +839,148 @@ pub fn is_agent_command(command_line: &str, agent_command: &str) -> bool {
     cmd_stem.is_some() && cmd_stem == agent_stem
 }
 
+pub struct ExpandedRepoPaths {
+    pub paths: Vec<PathBuf>,
+    pub unmatched_patterns: Vec<String>,
+}
+
+pub fn expand_repo_paths(patterns: &[String]) -> anyhow::Result<ExpandedRepoPaths> {
+    let mut paths = Vec::new();
+    let mut unmatched = Vec::new();
+    let mut seen = HashSet::new();
+
+    for pattern in patterns {
+        let expanded = expand_home(&expand_env_vars(pattern)?)?;
+        let mut matched = false;
+
+        let entries = glob::glob(&expanded)
+            .map_err(|e| anyhow::anyhow!("Invalid repo_paths pattern '{}': {}", pattern, e))?;
+
+        for entry in entries {
+            let path = entry.map_err(|e| {
+                anyhow::anyhow!("Failed to read repo_paths entry for '{}': {}", pattern, e)
+            })?;
+            matched = true;
+            if seen.insert(path.clone()) {
+                paths.push(path);
+            }
+        }
+
+        if !matched {
+            unmatched.push(pattern.clone());
+        }
+    }
+
+    Ok(ExpandedRepoPaths {
+        paths,
+        unmatched_patterns: unmatched,
+    })
+}
+
+fn expand_env_vars(input: &str) -> anyhow::Result<String> {
+    let mut output = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '$' {
+            output.push(ch);
+            continue;
+        }
+
+        let var_name = match chars.peek() {
+            Some('{') => {
+                chars.next();
+                let mut name = String::new();
+                let mut closed = false;
+                while let Some(next) = chars.next() {
+                    if next == '}' {
+                        closed = true;
+                        break;
+                    }
+                    name.push(next);
+                }
+                if !closed {
+                    return Err(anyhow::anyhow!(
+                        "Missing closing '}}' for environment variable in path: {}",
+                        input
+                    ));
+                }
+                if name.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Empty environment variable in path: {}",
+                        input
+                    ));
+                }
+                if !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    return Err(anyhow::anyhow!(
+                        "Invalid environment variable name '{}' in path: {}",
+                        name,
+                        input
+                    ));
+                }
+                name
+            }
+            Some(next) if next.is_ascii_alphanumeric() || *next == '_' => {
+                let mut name = String::new();
+                while let Some(next) = chars.peek()
+                    && (next.is_ascii_alphanumeric() || *next == '_')
+                {
+                    name.push(*next);
+                    chars.next();
+                }
+                name
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Invalid environment variable reference in path: {}",
+                    input
+                ));
+            }
+        };
+
+        let value = env::var(&var_name).map_err(|_| {
+            anyhow::anyhow!(
+                "Environment variable '{}' is not set (from path: {})",
+                var_name,
+                input
+            )
+        })?;
+        output.push_str(&value);
+    }
+
+    Ok(output)
+}
+
+fn expand_home(input: &str) -> anyhow::Result<String> {
+    if input == "~" {
+        let home_dir = home::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Cannot expand '~': home directory not found"))?;
+        return Ok(home_dir.to_string_lossy().into_owned());
+    }
+
+    if let Some(rest) = input.strip_prefix("~/") {
+        let home_dir = home::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Cannot expand '~': home directory not found"))?;
+        return Ok(home_dir.join(rest).to_string_lossy().into_owned());
+    }
+
+    if input.starts_with('~') {
+        return Err(anyhow::anyhow!(
+            "Unsupported home expansion in path: {}",
+            input
+        ));
+    }
+
+    Ok(input.to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{is_agent_command, split_first_token};
+    use super::{expand_env_vars, expand_home, expand_repo_paths, is_agent_command, split_first_token};
+    use std::env;
 
     #[test]
     fn split_first_token_single_word() {
@@ -877,5 +1053,50 @@ mod tests {
     fn is_agent_command_empty() {
         assert!(!is_agent_command("", "claude"));
         assert!(!is_agent_command("   ", "claude"));
+    }
+
+    #[test]
+    fn expand_env_vars_replaces_value() {
+        unsafe {
+            env::set_var("WORKMUX_TEST_VAR", "workmux-test-value");
+        }
+        let expanded = expand_env_vars("$WORKMUX_TEST_VAR/subdir").unwrap();
+        assert!(expanded.contains("workmux-test-value"));
+        unsafe {
+            env::remove_var("WORKMUX_TEST_VAR");
+        }
+    }
+
+    #[test]
+    fn expand_env_vars_missing_closing_brace_errors() {
+        let err = expand_env_vars("${HOME/subdir").unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("Missing"));
+    }
+
+    #[test]
+    fn expand_home_dir_basic() {
+        let expanded = expand_home("~").unwrap();
+        assert!(!expanded.is_empty());
+    }
+
+    #[test]
+    fn expand_repo_paths_deduplicates() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let repo_a = tempdir.path().join("repo-a");
+        let repo_b = tempdir.path().join("repo-b");
+        std::fs::create_dir_all(&repo_a).unwrap();
+        std::fs::create_dir_all(&repo_b).unwrap();
+
+        let patterns = vec![
+            format!("{}/*", tempdir.path().display()),
+            repo_a.display().to_string(),
+        ];
+
+        let expanded = expand_repo_paths(&patterns).unwrap();
+        let mut found = expanded.paths;
+        found.sort();
+        found.dedup();
+        assert_eq!(found.len(), 2);
     }
 }

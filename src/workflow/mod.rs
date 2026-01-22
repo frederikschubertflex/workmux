@@ -14,6 +14,7 @@ pub mod types;
 // Public API re-exports
 pub use create::{create, create_with_changes};
 pub use list::list;
+pub use list::list_in_repo;
 pub use merge::merge;
 pub use open::open;
 pub use remove::remove;

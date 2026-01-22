@@ -4,7 +4,7 @@ description: List all git worktrees with their tmux window and merge status
 
 # list
 
-Lists all git worktrees with their tmux window status and merge status. Alias: `ls`
+Lists git worktrees with their tmux window status. Alias: `ls`. Defaults to all worktrees.
 
 ```bash
 workmux list [flags]
@@ -12,32 +12,42 @@ workmux list [flags]
 
 ## Options
 
-| Flag   | Description                                                                                                                                                                                                                                          |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--pr` | Show GitHub PR status for each worktree. Requires the `gh` CLI to be installed and authenticated. Note that it shows pull requests' statuses with [Nerd Font](https://www.nerdfonts.com/) icons, which requires Nerd Font compatible font installed. |
+| Flag        | Description                                                                                         |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| `--pr`      | Show GitHub PR status for each worktree. Requires the `gh` CLI to be installed and authenticated.  |
+| `--all`     | Show all worktrees (active and inactive) (default).                                                |
+| `--active`  | Show only active worktrees.                                                                        |
 
 ## Examples
 
 ```bash
-# List all worktrees
+# List all worktrees (default)
 workmux list
 
 # List with PR status
 workmux list --pr
+
+# List only active worktrees
+workmux list --active
 ```
 
 ## Example output
 
 ```
-BRANCH      TMUX    UNMERGED    PATH
-------      ----    --------    ----
-main        -       -           ~/project
-user-auth   ✓       -           ~/project__worktrees/user-auth
-bug-fix     ✓       ●           ~/project__worktrees/bug-fix
+REPO    HANDLE      BRANCH      STATE     TMUX    PATH
+----    ------      ------      -----     ----    ----
+project project     main        inactive  0       ~/project
+project user-auth   user-auth   active    1       ~/project__worktrees/user-auth
+project bug-fix     bug-fix     active    1       ~/project__worktrees/bug-fix
 ```
 
 ## Key
 
-- `✓` in TMUX column = tmux window exists for this worktree
-- `●` in UNMERGED column = branch has commits not merged into main
-- `-` = not applicable
+- `STATE=active` means a tmux window exists for this worktree.
+- `TMUX=1` means a tmux window exists, `TMUX=0` means none.
+
+### Multi-repo
+
+Set `repo_paths` in `~/.config/workmux/config.yaml` to list across multiple repositories.
+# List all worktrees across configured repos
+workmux list --all

@@ -14,6 +14,19 @@ pub fn prefixed(prefix: &str, window_name: &str) -> String {
     format!("{}{}", prefix, window_name)
 }
 
+
+pub fn window_matches_handle(window_name: &str, handle: &str, prefixed: &str) -> bool {
+    if window_name == handle || window_name == prefixed {
+        return true;
+    }
+
+    let Some(prefix) = window_name.strip_suffix(handle) else {
+        return false;
+    };
+
+    !prefix.is_empty() && (prefix.ends_with(' ') || prefix.ends_with('\t'))
+}
+
 /// Get all tmux window names in a single call
 pub fn get_all_window_names() -> Result<HashSet<String>> {
     // tmux list-windows may exit with error if no windows exist
@@ -1286,6 +1299,19 @@ mod tests {
     fn test_is_posix_shell_fish() {
         assert!(!is_posix_shell("/usr/bin/fish"));
         assert!(!is_posix_shell("/opt/homebrew/bin/fish"));
+    }
+
+    #[test]
+    fn test_window_matches_handle() {
+        let handle = "feature";
+        let prefixed = "wm-feature";
+
+        assert!(window_matches_handle("feature", handle, prefixed));
+        assert!(window_matches_handle("wm-feature", handle, prefixed));
+        assert!(window_matches_handle("x feature", handle, prefixed));
+        assert!(window_matches_handle("x\tfeature", handle, prefixed));
+        assert!(!window_matches_handle("xfeature", handle, prefixed));
+        assert!(!window_matches_handle("featurex", handle, prefixed));
     }
 
     // --- rewrite_agent_command tests for POSIX shells ---

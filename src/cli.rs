@@ -309,6 +309,14 @@ enum Commands {
         /// Show PR status for each worktree (requires gh CLI)
         #[arg(long)]
         pr: bool,
+
+        /// Show all worktrees (active and inactive) (default)
+        #[arg(long, conflicts_with = "active")]
+        all: bool,
+
+        /// Show only active worktrees
+        #[arg(long, conflicts_with = "all")]
+        active: bool,
     },
 
     /// Get the filesystem path of a worktree
@@ -447,7 +455,10 @@ pub fn run() -> Result<()> {
             force,
             keep_branch,
         } => command::remove::run(names, gone, all, force, keep_branch),
-        Commands::List { pr } => command::list::run(pr),
+        Commands::List { pr, active, .. } => {
+            let show_all = !active;
+            command::list::run(pr, show_all)
+        }
         Commands::Path { name } => command::path::run(&name),
         Commands::Init => crate::config::Config::init(),
         Commands::Docs => command::docs::run(),

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::path::Path;
 use std::process::Command;
 use tracing::debug;
 
@@ -173,18 +174,27 @@ struct PrBatchItem {
 
 /// Fetch all PRs for the current repository.
 pub fn list_prs() -> Result<HashMap<String, PrSummary>> {
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "list",
-            "--state",
-            "all",
-            "--json",
-            "number,title,state,isDraft,headRefName",
-            "--limit",
-            "200",
-        ])
-        .output();
+    list_prs_in(None)
+}
+
+pub fn list_prs_in(workdir: Option<&Path>) -> Result<HashMap<String, PrSummary>> {
+    let mut command = Command::new("gh");
+    command.args([
+        "pr",
+        "list",
+        "--state",
+        "all",
+        "--json",
+        "number,title,state,isDraft,headRefName",
+        "--limit",
+        "200",
+    ]);
+
+    if let Some(path) = workdir {
+        command.current_dir(path);
+    }
+
+    let output = command.output();
 
     let output = match output {
         Ok(out) => out,

@@ -103,6 +103,7 @@ impl SetupOptions {
 /// List all worktrees with their status
 pub struct WorktreeInfo {
     pub branch: String,
+    pub handle: String,
     pub path: PathBuf,
     pub has_tmux: bool,
     pub has_unmerged: bool,

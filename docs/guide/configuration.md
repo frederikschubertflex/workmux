@@ -20,6 +20,11 @@ window_prefix: "\uf418 " # Use nerdtree branch icon as prefix
 merge_strategy: rebase # Make workmux merge do rebase by default
 agent: claude
 
+# Multi-repo listing for workmux list
+repo_paths:
+  - ~/repos/*
+  - $HOME/other/repo
+
 panes:
   - command: <agent> # Start the configured agent (e.g., claude)
     focus: true
@@ -62,6 +67,7 @@ Most options have sensible defaults. You only need to configure what you want to
 | `main_branch`    | Branch to merge into                                 | Auto-detected           |
 | `worktree_dir`   | Directory for worktrees (absolute or relative)       | `<project>__worktrees/` |
 | `window_prefix`  | Prefix for tmux window names                         | `wm-`                   |
+| `repo_paths`     | Repo paths/globs for multi-repo listing              | none                    |
 | `agent`          | Default agent for `<agent>` placeholder              | `claude`                |
 | `merge_strategy` | Default merge strategy (`merge`, `rebase`, `squash`) | `merge`                 |
 
@@ -160,6 +166,18 @@ Set `status_format: false` to disable automatic tmux format modification.
   - For all other projects: Opens your default shell.
   - Both configurations include a second pane split horizontally
 - `post_create` commands are optional and only run if you configure them
+
+## Multi-repo listing
+
+Set `repo_paths` in the global config to list worktrees across multiple repositories:
+
+```yaml
+repo_paths:
+  - ~/repos/*
+  - $HOME/oss/special-repo
+```
+
+Paths support `~` and environment variable expansion plus glob wildcards. Non-git paths are skipped with a warning.
 
 ## Automatic setup with panes
 

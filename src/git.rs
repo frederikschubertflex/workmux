@@ -90,11 +90,22 @@ pub fn is_git_repo() -> Result<bool> {
         .run_as_check()
 }
 
-/// Check if the repository has any commits (HEAD is valid)
-pub fn has_commits() -> Result<bool> {
+/// Check if a path is within a git repository
+pub fn is_git_repo_in(workdir: &Path) -> Result<bool> {
     Cmd::new("git")
-        .args(&["rev-parse", "--verify", "--quiet", "HEAD"])
+        .workdir(workdir)
+        .args(&["rev-parse", "--git-dir"])
         .run_as_check()
+}
+
+/// Check if the repository at a specific path has any commits (HEAD is valid)
+pub fn has_commits_in(workdir: Option<&Path>) -> Result<bool> {
+    let cmd = Cmd::new("git").args(&["rev-parse", "--verify", "--quiet", "HEAD"]);
+    let cmd = match workdir {
+        Some(path) => cmd.workdir(path),
+        None => cmd,
+    };
+    cmd.run_as_check()
 }
 
 /// Get the root directory of the git repository
@@ -223,7 +234,7 @@ pub fn get_default_branch_in(workdir: Option<&Path>) -> Result<String> {
     }
 
     // Check if repo has any commits at all
-    if !has_commits()? {
+    if !has_commits_in(workdir)? {
         return Err(anyhow!(
             "The repository has no commits yet. Please make an initial commit before using workmux, \
             or specify the main branch in .workmux.yaml using the 'main_branch' key."
@@ -607,6 +618,16 @@ pub fn list_worktrees() -> Result<Vec<(PathBuf, String)>> {
     parse_worktree_list_porcelain(&list)
 }
 
+/// List all worktrees with their branches for a specific repository root
+pub fn list_worktrees_in(workdir: &Path) -> Result<Vec<(PathBuf, String)>> {
+    let list = Cmd::new("git")
+        .workdir(workdir)
+        .args(&["worktree", "list", "--porcelain"])
+        .run_and_capture_stdout()
+        .context("Failed to list worktrees")?;
+    parse_worktree_list_porcelain(&list)
+}
+
 /// Check if the worktree has uncommitted changes
 pub fn has_uncommitted_changes(worktree_path: &Path) -> Result<bool> {
     let output = Cmd::new("git")
@@ -689,34 +710,51 @@ pub fn commit_with_editor(worktree_path: &Path) -> Result<()> {
 
 /// Get the base branch for merge checks, preferring local branch over remote
 pub fn get_merge_base(main_branch: &str) -> Result<String> {
+    get_merge_base_in(main_branch, None)
+}
+
+/// Get a set of all branches not merged into the base branch
+pub fn get_unmerged_branches(base_branch: &str) -> Result<HashSet<String>> {
+    get_unmerged_branches_in(base_branch, None)
+}
+
+/// Get the base branch for merge checks in a specific repository
+pub fn get_merge_base_in(main_branch: &str, workdir: Option<&Path>) -> Result<String> {
     // Check if the local branch exists first.
     // This ensures we compare against the local state (which might be ahead of remote)
     // avoiding false positives when local main has merged changes but hasn't been pushed.
-    if branch_exists(main_branch)? {
+    if branch_exists_in(main_branch, workdir)? {
         return Ok(main_branch.to_string());
     }
 
     // Fallback: check if origin/<main_branch> exists
     let remote_main = format!("origin/{}", main_branch);
-    if branch_exists(&remote_main)? {
+    if branch_exists_in(&remote_main, workdir)? {
         Ok(remote_main)
     } else {
         Ok(main_branch.to_string())
     }
 }
 
-/// Get a set of all branches not merged into the base branch
-pub fn get_unmerged_branches(base_branch: &str) -> Result<HashSet<String>> {
+/// Get a set of all branches not merged into the base branch in a specific repository
+pub fn get_unmerged_branches_in(
+    base_branch: &str,
+    workdir: Option<&Path>,
+) -> Result<HashSet<String>> {
     // Special handling for potential errors since base branch might not exist
     let no_merged_arg = format!("--no-merged={}", base_branch);
-    let result = Cmd::new("git")
-        .args(&[
-            "for-each-ref",
-            "--format=%(refname:short)",
-            &no_merged_arg,
-            "refs/heads/",
-        ])
-        .run_and_capture_stdout();
+    let cmd = Cmd::new("git").args(&[
+        "for-each-ref",
+        "--format=%(refname:short)",
+        &no_merged_arg,
+        "refs/heads/",
+    ]);
+    let cmd = match workdir {
+        Some(path) => cmd.workdir(path),
+        None => cmd,
+    };
+
+    let result = cmd.run_and_capture_stdout();
 
     match result {
         Ok(stdout) => {
