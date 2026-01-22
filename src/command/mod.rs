@@ -3,6 +3,7 @@ pub mod agent;
 pub mod args;
 pub mod changelog;
 pub mod close;
+pub mod capture;
 pub mod dashboard;
 pub mod docs;
 pub mod list;

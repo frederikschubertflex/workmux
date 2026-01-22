@@ -417,6 +417,7 @@ alias wm='workmux'
 - [`merge`](#workmux-merge-branch-name) - Merge a branch and clean up everything
 - [`remove`](#workmux-remove-name-alias-rm) - Remove worktrees without merging
 - [`list`](#workmux-list) - List all worktrees with status
+- [`capture`](#workmux-capture) - Capture output from an agent pane
 - [`open`](#workmux-open-name) - Open a tmux window for an existing worktree
 - [`close`](#workmux-close-name) - Close a worktree's tmux window (keeps
   worktree)
@@ -1067,6 +1068,22 @@ project bug-fix     bug-fix     active    1       ~/project__worktrees/bug-fix
 
 - `STATE=active` means a tmux window exists for this worktree.
 - `TMUX=1` means a tmux window exists, `TMUX=0` means none.
+
+---
+
+### `workmux capture`
+
+Capture recent output from the agent pane for a worktree.
+
+#### Examples
+
+```bash
+# Capture last 800 lines from current worktree's agent pane
+workmux capture
+
+# Capture 200 lines from a specific worktree
+workmux capture --handle feature-login --lines 200
+```
 
 ---
 

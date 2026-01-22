@@ -389,6 +389,25 @@ pub fn capture_pane(pane_id: &str, lines: u16) -> Option<String> {
     Some(output)
 }
 
+/// Capture the last N lines of a pane's terminal output without ANSI colors.
+/// Returns the captured text, or None if the pane doesn't exist.
+pub fn capture_pane_plain(pane_id: &str, lines: u16) -> Option<String> {
+    let start_line = format!("-{}", lines);
+    let output = Cmd::new("tmux")
+        .args(&[
+            "capture-pane",
+            "-p",        // Print to stdout
+            "-S",        // Start line
+            &start_line, // N lines back in history
+            "-t",
+            pane_id,
+        ])
+        .run_and_capture_stdout()
+        .ok()?;
+
+    Some(output)
+}
+
 /// Create a new tmux window with the given name and working directory.
 /// Returns the pane ID of the initial pane in the window.
 ///

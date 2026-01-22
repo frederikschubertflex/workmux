@@ -319,6 +319,25 @@ enum Commands {
         active: bool,
     },
 
+    /// Capture output from an agent pane
+    Capture {
+        /// Worktree handle (defaults to current worktree if omitted)
+        #[arg(long)]
+        handle: Option<String>,
+
+        /// Target pane ID (required if multiple agent panes exist)
+        #[arg(long)]
+        pane_id: Option<String>,
+
+        /// Number of lines to capture
+        #[arg(long, default_value_t = 800)]
+        lines: u16,
+
+        /// Preserve ANSI colors in output
+        #[arg(long)]
+        ansi: bool,
+    },
+
     /// Get the filesystem path of a worktree
     Path {
         /// Worktree name (directory name)
@@ -459,6 +478,12 @@ pub fn run() -> Result<()> {
             let show_all = !active;
             command::list::run(pr, show_all)
         }
+        Commands::Capture {
+            handle,
+            pane_id,
+            lines,
+            ansi,
+        } => command::capture::run(handle, pane_id, lines, ansi),
         Commands::Path { name } => command::path::run(&name),
         Commands::Init => crate::config::Config::init(),
         Commands::Docs => command::docs::run(),
